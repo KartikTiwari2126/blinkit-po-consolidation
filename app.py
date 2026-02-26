@@ -250,6 +250,9 @@ if excel_files and pdf_files:
             cols = first_cols + [c for c in final_df.columns if c not in first_cols and c != "base_key"]
             final_df = final_df[cols]
 
+            # Remove internal working columns
+            final_df = final_df.drop(columns=["base_x", "base_y"], errors="ignore")
+
             st.success("Processing completed successfully.")
 
             output = BytesIO()
@@ -262,4 +265,5 @@ if excel_files and pdf_files:
                 file_name="final_consolidated.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
 
