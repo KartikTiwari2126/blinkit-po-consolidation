@@ -8,10 +8,17 @@ from io import BytesIO
 
 st.set_page_config(page_title="Blinkit PO Consolidation", layout="wide")
 st.title("Blinkit PO Consolidation Tool")
-
 st.markdown("Upload matching Excel and PDF files.")
 
-# ================= UPLOAD SECTION =================
+# ================= ALWAYS VISIBLE RESET =================
+col1, col2 = st.columns([8, 1])
+with col2:
+    if st.button("Reset"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
+# ================= FILE UPLOAD =================
 
 excel_files = st.file_uploader(
     "Upload EXCEL files",
@@ -36,7 +43,7 @@ if excel_files or pdf_files:
     with col2:
         st.metric("PDF Files Uploaded", len(pdf_files) if pdf_files else 0)
 
-# ================= PROCESSING =================
+# ================= MAIN PROCESS =================
 
 if excel_files and pdf_files:
 
@@ -44,12 +51,10 @@ if excel_files and pdf_files:
 
         with st.spinner("Processing files..."):
 
-            # Convert to dictionary format
             uploaded_excel = {f.name: f.read() for f in excel_files}
             uploaded_pdf = {f.name: f.read() for f in pdf_files}
 
             # ================= VALIDATION =================
-
             excel_keys = {name.rsplit(".", 1)[0] for name in uploaded_excel.keys()}
             pdf_keys = {name.rsplit(".", 1)[0] for name in uploaded_pdf.keys()}
 
@@ -67,8 +72,7 @@ if excel_files and pdf_files:
 
                 st.stop()
 
-            # ================= SHIPPING ADDRESS FUNCTION =================
-
+            # ================= SHIPPING ADDRESS =================
             def extract_shipping_address(filedata):
 
                 with pdfplumber.open(io.BytesIO(filedata)) as pdf:
@@ -84,7 +88,6 @@ if excel_files and pdf_files:
 
                     lower = line.lower()
 
-                    # Capture company after Delivered :
                     if lower.startswith("delivered"):
                         parts = line.split(":", 1)
                         if len(parts) > 1:
@@ -93,7 +96,6 @@ if excel_files and pdf_files:
                             company = temp.strip()
                         continue
 
-                    # Start capturing after To
                     if lower.startswith("to "):
                         capture_address = True
                         addr_part = line[3:].strip()
@@ -102,7 +104,6 @@ if excel_files and pdf_files:
                             address_lines.append(addr_part)
                         continue
 
-                    # Continue capturing address
                     if capture_address:
                         if line.startswith("#"):
                             break
@@ -152,7 +153,7 @@ if excel_files and pdf_files:
                 m = re.search(r"PO\s*expiry\s*date\s*:\s*(.*)", text, re.IGNORECASE)
                 rec["PO EXPIRY DATE"] = to_ddmmyyyy(clean_spaces(m.group(1))) if m else ""
 
-                # -------- CLIENT NAME LOGIC --------
+                # CLIENT NAME LOGIC
                 lines = [l.strip() for l in text.splitlines() if l.strip()]
                 client = ""
 
@@ -176,8 +177,6 @@ if excel_files and pdf_files:
                         pass
 
                 rec["client name"] = client
-
-                # -------- SHIPPING ADDRESS --------
                 rec["SHIPPING ADDRESS"] = extract_shipping_address(filedata)
 
                 matches = re.findall(r"GST\s*No\.?\s*:\s*([A-Z0-9]{15})", text, re.IGNORECASE)
@@ -246,8 +245,6 @@ if excel_files and pdf_files:
             cols = first_cols + [c for c in final_df.columns if c not in first_cols and c != "base_key"]
             final_df = final_df[cols]
 
-            # ================= DOWNLOAD =================
-
             st.success("Processing completed successfully.")
 
             output = BytesIO()
@@ -261,7 +258,7 @@ if excel_files and pdf_files:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            # Cleanup
+            # Memory cleanup
             del final_df
             del df_excel
             del df_pdf
@@ -270,3 +267,4 @@ if excel_files and pdf_files:
 
 else:
     st.info("Please upload both Excel and PDF files.")
+
