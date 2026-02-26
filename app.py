@@ -14,22 +14,26 @@ st.markdown("Upload matching Excel and PDF files.")
 col1, col2 = st.columns([8, 1])
 with col2:
     if st.button("Reset"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+        if "excel_uploader" in st.session_state:
+            del st.session_state["excel_uploader"]
+        if "pdf_uploader" in st.session_state:
+            del st.session_state["pdf_uploader"]
         st.rerun()
 
-# ================= FILE UPLOAD =================
+# ================= FILE UPLOAD (WITH KEYS) =================
 
 excel_files = st.file_uploader(
     "Upload EXCEL files",
     type=["xlsx", "xls"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
+    key="excel_uploader"
 )
 
 pdf_files = st.file_uploader(
     "Upload PDF files",
     type=["pdf"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
+    key="pdf_uploader"
 )
 
 # ================= FILE COUNT DISPLAY =================
@@ -72,7 +76,8 @@ if excel_files and pdf_files:
 
                 st.stop()
 
-            # ================= SHIPPING ADDRESS =================
+            # ================= SHIPPING ADDRESS FUNCTION =================
+
             def extract_shipping_address(filedata):
 
                 with pdfplumber.open(io.BytesIO(filedata)) as pdf:
@@ -257,14 +262,3 @@ if excel_files and pdf_files:
                 file_name="final_consolidated.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
-            # Memory cleanup
-            del final_df
-            del df_excel
-            del df_pdf
-            excel_rows.clear()
-            pdf_records.clear()
-
-else:
-    st.info("Please upload both Excel and PDF files.")
-
