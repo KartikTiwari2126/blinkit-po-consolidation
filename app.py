@@ -26,11 +26,11 @@ pdf_files = st.file_uploader(
 
 if excel_files and pdf_files:
 
-    # Convert to dictionary format like Colab
+    # Convert to dictionary format (same as Colab logic)
     uploaded_excel = {f.name: f.read() for f in excel_files}
     uploaded_pdf = {f.name: f.read() for f in pdf_files}
 
-    # Validation check
+    # ================= VALIDATION =================
     excel_keys = {name.rsplit(".", 1)[0] for name in uploaded_excel.keys()}
     pdf_keys = {name.rsplit(".", 1)[0] for name in uploaded_pdf.keys()}
 
@@ -48,7 +48,55 @@ if excel_files and pdf_files:
 
         st.stop()
 
-    # ================= PDF LOGIC (UNCHANGED) =================
+    # ================= SHIPPING ADDRESS FUNCTION =================
+
+    def extract_shipping_address(filedata):
+
+        with pdfplumber.open(io.BytesIO(filedata)) as pdf:
+            text = "\n".join([(page.extract_text() or "") for page in pdf.pages])
+
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+        company = ""
+        address_lines = []
+        capture_address = False
+
+        for line in lines:
+
+            lower = line.lower()
+
+            # Capture company after Delivered :
+            if lower.startswith("delivered"):
+                parts = line.split(":", 1)
+                if len(parts) > 1:
+                    temp = parts[1]
+                    temp = re.split(r"gst", temp, flags=re.IGNORECASE)[0]
+                    company = temp.strip()
+                continue
+
+            # Start capturing after To
+            if lower.startswith("to "):
+                capture_address = True
+                addr_part = line[3:].strip()
+                addr_part = re.split(r"reference", addr_part, flags=re.IGNORECASE)[0]
+                if addr_part:
+                    address_lines.append(addr_part)
+                continue
+
+            # Continue capturing address
+            if capture_address:
+                if line.startswith("#"):
+                    break
+
+                clean_line = re.split(r"reference", line, flags=re.IGNORECASE)[0].strip()
+
+                if clean_line:
+                    address_lines.append(clean_line)
+
+        full_address = company + "\n" + "\n".join(address_lines)
+        return full_address.strip()
+
+    # ================= PDF LOGIC (UNCHANGED EXCEPT SHIPPING) =================
 
     def clean_spaces(x):
         return re.sub(r"\s+", " ", x).strip()
@@ -85,6 +133,7 @@ if excel_files and pdf_files:
         m = re.search(r"PO\s*expiry\s*date\s*:\s*(.*)", text, re.IGNORECASE)
         rec["PO EXPIRY DATE"] = to_ddmmyyyy(clean_spaces(m.group(1))) if m else ""
 
+        # -------- CLIENT NAME LOGIC (UNCHANGED) --------
         lines = [l.strip() for l in text.splitlines() if l.strip()]
         client = ""
 
@@ -108,7 +157,9 @@ if excel_files and pdf_files:
                 pass
 
         rec["client name"] = client
-        rec["SHIPPING ADDRESS"] = ""
+
+        # -------- SHIPPING ADDRESS (NEW) --------
+        rec["SHIPPING ADDRESS"] = extract_shipping_address(filedata)
 
         matches = re.findall(r"GST\s*No\.?\s*:\s*([A-Z0-9]{15})", text, re.IGNORECASE)
         rec["GST Number"] = matches[-1] if matches else ""
@@ -176,7 +227,7 @@ if excel_files and pdf_files:
     cols = first_cols + [c for c in final_df.columns if c not in first_cols and c != "base_key"]
     final_df = final_df[cols]
 
-    # ================= DOWNLOAD (MEMORY ONLY) =================
+    # ================= DOWNLOAD =================
 
     st.success("Processing completed successfully.")
 
@@ -191,7 +242,7 @@ if excel_files and pdf_files:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    # Explicit memory cleanup
+    # Memory cleanup
     del final_df
     del df_excel
     del df_pdf
