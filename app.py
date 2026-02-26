@@ -11,7 +11,8 @@ st.title("Blinkit PO Consolidation Tool")
 
 st.markdown("Upload matching Excel and PDF files.")
 
-# Uploaders
+# ================= UPLOAD SECTION =================
+
 excel_files = st.file_uploader(
     "Upload EXCEL files",
     type=["xlsx", "xls"],
@@ -24,230 +25,248 @@ pdf_files = st.file_uploader(
     accept_multiple_files=True
 )
 
+# ================= FILE COUNT DISPLAY =================
+
+if excel_files or pdf_files:
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric("Excel Files Uploaded", len(excel_files) if excel_files else 0)
+
+    with col2:
+        st.metric("PDF Files Uploaded", len(pdf_files) if pdf_files else 0)
+
+# ================= PROCESSING =================
+
 if excel_files and pdf_files:
 
-    # Convert to dictionary format (same as Colab logic)
-    uploaded_excel = {f.name: f.read() for f in excel_files}
-    uploaded_pdf = {f.name: f.read() for f in pdf_files}
+    if st.button("Consolidate"):
 
-    # ================= VALIDATION =================
-    excel_keys = {name.rsplit(".", 1)[0] for name in uploaded_excel.keys()}
-    pdf_keys = {name.rsplit(".", 1)[0] for name in uploaded_pdf.keys()}
+        with st.spinner("Processing files..."):
 
-    missing_excels = pdf_keys - excel_keys
-    missing_pdfs = excel_keys - pdf_keys
+            # Convert to dictionary format
+            uploaded_excel = {f.name: f.read() for f in excel_files}
+            uploaded_pdf = {f.name: f.read() for f in pdf_files}
 
-    if missing_excels or missing_pdfs:
-        st.error("Mismatch detected between uploaded files.")
+            # ================= VALIDATION =================
 
-        if missing_excels:
-            st.error(f"Missing Excel for: {', '.join(missing_excels)}")
+            excel_keys = {name.rsplit(".", 1)[0] for name in uploaded_excel.keys()}
+            pdf_keys = {name.rsplit(".", 1)[0] for name in uploaded_pdf.keys()}
 
-        if missing_pdfs:
-            st.error(f"Missing PDF for: {', '.join(missing_pdfs)}")
+            missing_excels = pdf_keys - excel_keys
+            missing_pdfs = excel_keys - pdf_keys
 
-        st.stop()
+            if missing_excels or missing_pdfs:
+                st.error("Mismatch detected between uploaded files.")
 
-    # ================= SHIPPING ADDRESS FUNCTION =================
+                if missing_excels:
+                    st.error(f"Missing Excel for: {', '.join(missing_excels)}")
 
-    def extract_shipping_address(filedata):
+                if missing_pdfs:
+                    st.error(f"Missing PDF for: {', '.join(missing_pdfs)}")
 
-        with pdfplumber.open(io.BytesIO(filedata)) as pdf:
-            text = "\n".join([(page.extract_text() or "") for page in pdf.pages])
+                st.stop()
 
-        lines = [l.strip() for l in text.splitlines() if l.strip()]
+            # ================= SHIPPING ADDRESS FUNCTION =================
 
-        company = ""
-        address_lines = []
-        capture_address = False
+            def extract_shipping_address(filedata):
 
-        for line in lines:
+                with pdfplumber.open(io.BytesIO(filedata)) as pdf:
+                    text = "\n".join([(page.extract_text() or "") for page in pdf.pages])
 
-            lower = line.lower()
+                lines = [l.strip() for l in text.splitlines() if l.strip()]
 
-            # Capture company after Delivered :
-            if lower.startswith("delivered"):
-                parts = line.split(":", 1)
-                if len(parts) > 1:
-                    temp = parts[1]
-                    temp = re.split(r"gst", temp, flags=re.IGNORECASE)[0]
-                    company = temp.strip()
-                continue
+                company = ""
+                address_lines = []
+                capture_address = False
 
-            # Start capturing after To
-            if lower.startswith("to "):
-                capture_address = True
-                addr_part = line[3:].strip()
-                addr_part = re.split(r"reference", addr_part, flags=re.IGNORECASE)[0]
-                if addr_part:
-                    address_lines.append(addr_part)
-                continue
+                for line in lines:
 
-            # Continue capturing address
-            if capture_address:
-                if line.startswith("#"):
-                    break
+                    lower = line.lower()
 
-                clean_line = re.split(r"reference", line, flags=re.IGNORECASE)[0].strip()
+                    # Capture company after Delivered :
+                    if lower.startswith("delivered"):
+                        parts = line.split(":", 1)
+                        if len(parts) > 1:
+                            temp = parts[1]
+                            temp = re.split(r"gst", temp, flags=re.IGNORECASE)[0]
+                            company = temp.strip()
+                        continue
 
-                if clean_line:
-                    address_lines.append(clean_line)
+                    # Start capturing after To
+                    if lower.startswith("to "):
+                        capture_address = True
+                        addr_part = line[3:].strip()
+                        addr_part = re.split(r"reference", addr_part, flags=re.IGNORECASE)[0]
+                        if addr_part:
+                            address_lines.append(addr_part)
+                        continue
 
-        full_address = company + "\n" + "\n".join(address_lines)
-        return full_address.strip()
+                    # Continue capturing address
+                    if capture_address:
+                        if line.startswith("#"):
+                            break
 
-    # ================= PDF LOGIC (UNCHANGED EXCEPT SHIPPING) =================
+                        clean_line = re.split(r"reference", line, flags=re.IGNORECASE)[0].strip()
 
-    def clean_spaces(x):
-        return re.sub(r"\s+", " ", x).strip()
+                        if clean_line:
+                            address_lines.append(clean_line)
 
-    def to_ddmmyyyy(val):
-        if not val:
-            return ""
-        val = val.replace(".", "")
-        if "," in val:
-            parts = val.split(",")
-            val = ",".join(parts[:2])
-        for fmt in ["%b %d, %Y", "%B %d, %Y", "%d %b %Y", "%d %B %Y"]:
-            try:
-                return datetime.strptime(val.strip(), fmt).strftime("%d-%m-%Y")
-            except:
-                pass
-        return val
+                full_address = company + "\n" + "\n".join(address_lines)
+                return full_address.strip()
 
-    pdf_records = []
+            # ================= PDF LOGIC =================
 
-    for filename, filedata in uploaded_pdf.items():
+            def clean_spaces(x):
+                return re.sub(r"\s+", " ", x).strip()
 
-        with pdfplumber.open(io.BytesIO(filedata)) as pdf:
-            text = "\n".join([(page.extract_text() or "") for page in pdf.pages])
+            def to_ddmmyyyy(val):
+                if not val:
+                    return ""
+                val = val.replace(".", "")
+                if "," in val:
+                    parts = val.split(",")
+                    val = ",".join(parts[:2])
+                for fmt in ["%b %d, %Y", "%B %d, %Y", "%d %b %Y", "%d %B %Y"]:
+                    try:
+                        return datetime.strptime(val.strip(), fmt).strftime("%d-%m-%Y")
+                    except:
+                        pass
+                return val
 
-        rec = {}
+            pdf_records = []
 
-        m = re.search(r"P\.?O\.?\s*Number\s*:\s*(.*)", text, re.IGNORECASE)
-        rec["PO NO"] = clean_spaces(m.group(1)) if m else ""
+            for filename, filedata in uploaded_pdf.items():
 
-        m = re.search(r"\bDate\s*:\s*(.*)", text, re.IGNORECASE)
-        rec["PO DATE"] = to_ddmmyyyy(clean_spaces(m.group(1))) if m else ""
+                with pdfplumber.open(io.BytesIO(filedata)) as pdf:
+                    text = "\n".join([(page.extract_text() or "") for page in pdf.pages])
 
-        m = re.search(r"PO\s*expiry\s*date\s*:\s*(.*)", text, re.IGNORECASE)
-        rec["PO EXPIRY DATE"] = to_ddmmyyyy(clean_spaces(m.group(1))) if m else ""
+                rec = {}
 
-        # -------- CLIENT NAME LOGIC (UNCHANGED) --------
-        lines = [l.strip() for l in text.splitlines() if l.strip()]
-        client = ""
+                m = re.search(r"P\.?O\.?\s*Number\s*:\s*(.*)", text, re.IGNORECASE)
+                rec["PO NO"] = clean_spaces(m.group(1)) if m else ""
 
-        for l in lines:
-            if re.search(r"(feeder\s*warehouse|feeder)\s*$", l, re.IGNORECASE):
-                client = clean_spaces(l)
-                break
+                m = re.search(r"\bDate\s*:\s*(.*)", text, re.IGNORECASE)
+                rec["PO DATE"] = to_ddmmyyyy(clean_spaces(m.group(1))) if m else ""
 
-        if not client:
-            try:
-                start = next(i for i, l in enumerate(lines) if l.lower().startswith("cin"))
-                end   = next(i for i, l in enumerate(lines) if l.lower().startswith("contact name"))
-                block = lines[start:end]
+                m = re.search(r"PO\s*expiry\s*date\s*:\s*(.*)", text, re.IGNORECASE)
+                rec["PO EXPIRY DATE"] = to_ddmmyyyy(clean_spaces(m.group(1))) if m else ""
 
-                for l in block:
-                    ll = l.lower()
-                    if "pan" not in ll and "cin" not in ll:
+                # -------- CLIENT NAME LOGIC --------
+                lines = [l.strip() for l in text.splitlines() if l.strip()]
+                client = ""
+
+                for l in lines:
+                    if re.search(r"(feeder\s*warehouse|feeder)\s*$", l, re.IGNORECASE):
                         client = clean_spaces(l)
                         break
-            except:
-                pass
 
-        rec["client name"] = client
+                if not client:
+                    try:
+                        start = next(i for i, l in enumerate(lines) if l.lower().startswith("cin"))
+                        end   = next(i for i, l in enumerate(lines) if l.lower().startswith("contact name"))
+                        block = lines[start:end]
 
-        # -------- SHIPPING ADDRESS (NEW) --------
-        rec["SHIPPING ADDRESS"] = extract_shipping_address(filedata)
+                        for l in block:
+                            ll = l.lower()
+                            if "pan" not in ll and "cin" not in ll:
+                                client = clean_spaces(l)
+                                break
+                    except:
+                        pass
 
-        matches = re.findall(r"GST\s*No\.?\s*:\s*([A-Z0-9]{15})", text, re.IGNORECASE)
-        rec["GST Number"] = matches[-1] if matches else ""
+                rec["client name"] = client
 
-        rec["base"] = filename.rsplit(".", 1)[0]
-        rec["base_key"] = rec["base"].split("_")[0]
+                # -------- SHIPPING ADDRESS --------
+                rec["SHIPPING ADDRESS"] = extract_shipping_address(filedata)
 
-        pdf_records.append(rec)
+                matches = re.findall(r"GST\s*No\.?\s*:\s*([A-Z0-9]{15})", text, re.IGNORECASE)
+                rec["GST Number"] = matches[-1] if matches else ""
 
-    df_pdf = pd.DataFrame(pdf_records)
+                rec["base"] = filename.rsplit(".", 1)[0]
+                rec["base_key"] = rec["base"].split("_")[0]
 
-    # ================= EXCEL LOGIC (UNCHANGED) =================
+                pdf_records.append(rec)
 
-    required_cols = [
-        "#","Item Code","HSN Code","Product UPC","Product Description",
-        "Grammage","Basic Cost Price","CGST %","SGST %","IGST %",
-        "CESS %","Additional CES","Tax Amount","Landing Rate",
-        "Quantity","MRP","Margin %","Total Amount"
-    ]
+            df_pdf = pd.DataFrame(pdf_records)
 
-    excel_rows = []
+            # ================= EXCEL LOGIC =================
 
-    for filename, filedata in uploaded_excel.items():
-        xls = pd.ExcelFile(io.BytesIO(filedata))
-        sheet = xls.sheet_names[0]
+            required_cols = [
+                "#","Item Code","HSN Code","Product UPC","Product Description",
+                "Grammage","Basic Cost Price","CGST %","SGST %","IGST %",
+                "CESS %","Additional CES","Tax Amount","Landing Rate",
+                "Quantity","MRP","Margin %","Total Amount"
+            ]
 
-        df = pd.read_excel(xls, sheet_name=sheet, header=None)
+            excel_rows = []
 
-        header_row = 0
-        for i in range(min(15, len(df))):
-            row_text = " ".join(df.iloc[i].astype(str)).lower()
-            if "item" in row_text and "code" in row_text:
-                header_row = i
-                break
+            for filename, filedata in uploaded_excel.items():
+                xls = pd.ExcelFile(io.BytesIO(filedata))
+                sheet = xls.sheet_names[0]
 
-        df = pd.read_excel(xls, sheet_name=sheet, header=header_row)
-        df.columns = [str(c).strip() for c in df.columns]
+                df = pd.read_excel(xls, sheet_name=sheet, header=None)
 
-        keep = [c for c in required_cols if c in df.columns]
-        df = df[keep]
+                header_row = 0
+                for i in range(min(15, len(df))):
+                    row_text = " ".join(df.iloc[i].astype(str)).lower()
+                    if "item" in row_text and "code" in row_text:
+                        header_row = i
+                        break
 
-        if "#" in df.columns:
-            df = df[df["#"].notna()]
+                df = pd.read_excel(xls, sheet_name=sheet, header=header_row)
+                df.columns = [str(c).strip() for c in df.columns]
 
-        df["base"] = filename.rsplit(".", 1)[0]
-        df["base_key"] = df["base"].str.split("_").str[0]
+                keep = [c for c in required_cols if c in df.columns]
+                df = df[keep]
 
-        excel_rows.append(df)
+                if "#" in df.columns:
+                    df = df[df["#"].notna()]
 
-    df_excel = pd.concat(excel_rows, ignore_index=True)
+                df["base"] = filename.rsplit(".", 1)[0]
+                df["base_key"] = df["base"].str.split("_").str[0]
 
-    # ================= MERGE LOGIC (UNCHANGED) =================
+                excel_rows.append(df)
 
-    final_df = df_excel.merge(
-        df_pdf,
-        on="base_key",
-        how="left"
-    )
+            df_excel = pd.concat(excel_rows, ignore_index=True)
 
-    first_cols = [
-        "PO NO","PO DATE","PO EXPIRY DATE",
-        "client name","SHIPPING ADDRESS","GST Number"
-    ]
+            # ================= MERGE =================
 
-    cols = first_cols + [c for c in final_df.columns if c not in first_cols and c != "base_key"]
-    final_df = final_df[cols]
+            final_df = df_excel.merge(
+                df_pdf,
+                on="base_key",
+                how="left"
+            )
 
-    # ================= DOWNLOAD =================
+            first_cols = [
+                "PO NO","PO DATE","PO EXPIRY DATE",
+                "client name","SHIPPING ADDRESS","GST Number"
+            ]
 
-    st.success("Processing completed successfully.")
+            cols = first_cols + [c for c in final_df.columns if c not in first_cols and c != "base_key"]
+            final_df = final_df[cols]
 
-    output = BytesIO()
-    final_df.to_excel(output, index=False)
-    output.seek(0)
+            # ================= DOWNLOAD =================
 
-    st.download_button(
-        label="Download Consolidated File",
-        data=output,
-        file_name="final_consolidated.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+            st.success("Processing completed successfully.")
 
-    # Memory cleanup
-    del final_df
-    del df_excel
-    del df_pdf
-    excel_rows.clear()
-    pdf_records.clear()
+            output = BytesIO()
+            final_df.to_excel(output, index=False)
+            output.seek(0)
+
+            st.download_button(
+                label="Download Consolidated File",
+                data=output,
+                file_name="final_consolidated.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+            # Cleanup
+            del final_df
+            del df_excel
+            del df_pdf
+            excel_rows.clear()
+            pdf_records.clear()
 
 else:
     st.info("Please upload both Excel and PDF files.")
