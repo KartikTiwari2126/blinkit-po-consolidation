@@ -6,6 +6,9 @@ from datetime import datetime
 import pandas as pd
 from io import BytesIO
 
+if "reset_counter" not in st.session_state:
+    st.session_state.reset_counter = 0
+
 st.set_page_config(page_title="Blinkit PO Consolidation", layout="wide")
 st.title("Blinkit PO Consolidation Tool")
 st.markdown("Upload matching Excel and PDF files.")
@@ -14,10 +17,7 @@ st.markdown("Upload matching Excel and PDF files.")
 col1, col2 = st.columns([8, 1])
 with col2:
     if st.button("Reset"):
-        if "excel_uploader" in st.session_state:
-            del st.session_state["excel_uploader"]
-        if "pdf_uploader" in st.session_state:
-            del st.session_state["pdf_uploader"]
+        st.session_state.reset_counter += 1
         st.rerun()
 
 # ================= FILE UPLOAD (WITH KEYS) =================
@@ -26,14 +26,14 @@ excel_files = st.file_uploader(
     "Upload EXCEL files",
     type=["xlsx", "xls"],
     accept_multiple_files=True,
-    key="excel_uploader"
+    key=f"excel_uploader_{st.session_state.reset_counter}"
 )
 
 pdf_files = st.file_uploader(
     "Upload PDF files",
     type=["pdf"],
     accept_multiple_files=True,
-    key="pdf_uploader"
+    key=f"pdf_uploader_{st.session_state.reset_counter}"
 )
 
 # ================= FILE COUNT DISPLAY =================
@@ -262,3 +262,4 @@ if excel_files and pdf_files:
                 file_name="final_consolidated.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
